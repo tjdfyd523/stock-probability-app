@@ -110,13 +110,10 @@ if ticker:
         ax.grid(True)
         st.pyplot(fig)
 
-        st.subheader(f"{ticker.upper()} Up/Down Probabilities")
+        st.subheader("📈 Predicted Future Prices (Based on Average Daily Return)")
 
-        def up_down_probability(days):
-            future_returns = hist["Close"].pct_change(periods=days).dropna()
-            up_prob = (future_returns > 0).mean() * 100
-            down_prob = 100 - up_prob
-            return up_prob, down_prob
+        daily_returns = hist["Close"].pct_change().dropna()
+        avg_daily_return = daily_returns.mean()
 
         periods_prob = {
             "1 Day": 1,
@@ -126,24 +123,9 @@ if ticker:
         }
 
         for label, days in periods_prob.items():
-            up, down = up_down_probability(days)
-            st.markdown(
-                f"**{label} Later →** Up Probability: "
-                f"<span style='color:red'>{up:.2f}%</span>, "
-                f"Down Probability: <span style='color:blue'>{down:.2f}%</span>",
-                unsafe_allow_html=True
-            )
-
-        st.subheader("📈 Predicted Future Prices (Based on Average Daily Return)")
-
-        daily_returns = hist["Close"].pct_change().dropna()
-        avg_daily_return = daily_returns.mean()
-
-        for label, days in periods_prob.items():
             predicted_price = calculate_predicted_price(current_price, avg_daily_return, days)
-            up, down = up_down_probability(days)
             st.markdown(f"💡 **{label} Later:** `${predicted_price:.2f}`")
-            st.markdown(f"📊 **Probability of Price Being Higher**: <span style='color:red'>{up:.2f}%</span>", unsafe_allow_html=True)
+            st.markdown(f"📊 **Probability of Price Being Higher**: <span style='color:red'>{up_probs.iloc[-1] * 100:.2f}%</span>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
