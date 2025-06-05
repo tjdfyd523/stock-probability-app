@@ -71,7 +71,7 @@ if ticker:
         ax.axhline(suggested_buy, color="red", linestyle=":", label=f"Suggested Buy (${suggested_buy:.2f})")
         ax.axhline(suggested_sell, color="blue", linestyle=":", label=f"Suggested Sell (${suggested_sell:.2f})")
 
-        # 밥그릇 구간 찾기 (최근 30일 기준, 필요하면 조절 가능)
+        # 밥그릇 구간 찾기 (최근 30일 기준)
         bowl_start, bowl_end, bowl_low, bowl_high = find_rice_bowl_zone(hist_period, window=30)
         
         # 밥그릇 구간 사각형 표시
@@ -88,7 +88,7 @@ if ticker:
             )
         )
 
-        # 밥그릇 하단 매수 시그널: 밥그릇 하단 가격 근처에서 Close가 처음으로 밑에서 위로 올라갈 때
+        # 밥그릇 하단 매수 시그널
         buy_points = []
         df_bowl = hist_period.loc[bowl_start:bowl_end]
         for i in range(1, len(df_bowl)):
@@ -97,7 +97,7 @@ if ticker:
             if prev_close < bowl_low and curr_close >= bowl_low:
                 buy_points.append(df_bowl.index[i])
 
-        # 밥그릇 상단 돌파 매도 시그널: Close가 밥그릇 상단을 위로 돌파하는 시점
+        # 밥그릇 상단 돌파 매도 시그널
         sell_points = []
         for i in range(1, len(df_bowl)):
             prev_close = df_bowl["Close"].iloc[i-1]
@@ -122,7 +122,6 @@ if ticker:
         ax.grid(True)
         st.pyplot(fig)
 
-        # 이하 기존 코드 유지
         st.subheader(f"{ticker.upper()} Up/Down Probabilities")
 
         def up_down_probability(days):
@@ -158,4 +157,5 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
 
