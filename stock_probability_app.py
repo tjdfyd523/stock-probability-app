@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="📈 Stock Up/Down Forecast (MA Cross)", layout="centered")
-st.title("📈 이동평균선 교차 기반 매수/매도 권장가")
+st.set_page_config(page_title="📈 MA Crossover Buy/Sell Signals", layout="centered")
+st.title("📈 Moving Average Crossover Based Buy/Sell Recommendations")
 
-ticker = st.text_input("Enter ticker (예: AAPL, 005930.KS)", value="SOXL")
+ticker = st.text_input("Enter stock ticker (e.g., AAPL, 005930.KS)", value="SOXL")
 
 @st.cache_data
 def load_price_history(ticker):
@@ -69,57 +69,57 @@ if ticker:
                 sell2_price = current_close2[condition_15].iloc[0]
                 sell2_date = current_close2[condition_15].index[0]
 
-        st.subheader(f"💰 현재가: ${current_price:.2f}")
+        st.subheader(f"💰 Current Price: ${current_price:.2f}")
 
         if buy1_price is not None:
-            st.markdown(f"📌 1차 매수 권장가 (6M MA가 1Y MA 위로 교차): ${buy1_price:.2f}")
+            st.markdown(f"📌 1st Buy Recommendation (6M MA crosses above 1Y MA): ${buy1_price:.2f}")
         else:
-            st.markdown("📌 1차 매수 권장가 신호가 없습니다.")
+            st.markdown("📌 No 1st buy signal found.")
 
         if buy2_price is not None:
-            st.markdown(f"📌 2차 매수 권장가 (1Y MA가 2Y MA 위로 교차): ${buy2_price:.2f}")
+            st.markdown(f"📌 2nd Buy Recommendation (1Y MA crosses above 2Y MA): ${buy2_price:.2f}")
         else:
-            st.markdown("📌 2차 매수 권장가 신호가 없습니다.")
+            st.markdown("📌 No 2nd buy signal found.")
 
         if sell1_price is not None:
-            st.markdown(f"📌 1차 매도 권장가 (1차 매수 후 최고가 대비 10% 하락): ${sell1_price:.2f}")
+            st.markdown(f"📌 1st Sell Recommendation (10% drop from highest price after 1st buy): ${sell1_price:.2f}")
         else:
-            st.markdown("📌 1차 매도 권장가 신호가 없습니다.")
+            st.markdown("📌 No 1st sell signal found.")
 
         if sell2_price is not None:
-            st.markdown(f"📌 2차 매도 권장가 (2차 매수 후 최고가 대비 15% 하락): ${sell2_price:.2f}")
+            st.markdown(f"📌 2nd Sell Recommendation (15% drop from highest price after 2nd buy): ${sell2_price:.2f}")
         else:
-            st.markdown("📌 2차 매도 권장가 신호가 없습니다.")
+            st.markdown("📌 No 2nd sell signal found.")
 
         fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(hist.index, hist["Close"], label="종가", color="black")
-        ax.plot(hist.index, hist["MA_6M"], label="6개월 MA", color="orange", linestyle="--")
-        ax.plot(hist.index, hist["MA_1Y"], label="1년 MA", color="green", linestyle="--")
-        ax.plot(hist.index, hist["MA_2Y"], label="2년 MA", color="red", linestyle="--")
+        ax.plot(hist.index, hist["Close"], label="Close Price", color="black")
+        ax.plot(hist.index, hist["MA_6M"], label="6-Month MA", color="orange", linestyle="--")
+        ax.plot(hist.index, hist["MA_1Y"], label="1-Year MA", color="green", linestyle="--")
+        ax.plot(hist.index, hist["MA_2Y"], label="2-Year MA", color="red", linestyle="--")
 
         for date, val, typ in zip(buy1_dates, buy1_vals, buy1_types):
             if typ == 'up':
-                ax.scatter(date, val, marker="^", color="darkred", s=120, label="1차 매수 권장가" if date == buy1_dates[0] else "")
+                ax.scatter(date, val, marker="^", color="darkred", s=120, label="1st Buy Signal" if date == buy1_dates[0] else "")
         for date, val, typ in zip(buy2_dates, buy2_vals, buy2_types):
             if typ == 'up':
-                ax.scatter(date, val, marker="^", color="pink", s=120, label="2차 매수 권장가" if date == buy2_dates[0] else "")
+                ax.scatter(date, val, marker="^", color="pink", s=120, label="2nd Buy Signal" if date == buy2_dates[0] else "")
 
         if sell1_price is not None and sell1_date is not None:
-            ax.scatter(sell1_date, sell1_price, marker="v", color="blue", s=120, label="1차 매도 권장가")
+            ax.scatter(sell1_date, sell1_price, marker="v", color="blue", s=120, label="1st Sell Signal")
         if sell2_price is not None and sell2_date is not None:
-            ax.scatter(sell2_date, sell2_price, marker="v", color="deepskyblue", s=120, label="2차 매도 권장가")
+            ax.scatter(sell2_date, sell2_price, marker="v", color="deepskyblue", s=120, label="2nd Sell Signal")
 
-        ax.set_title(f"{ticker.upper()} 가격 및 이동평균선 교차 매매 신호")
-        ax.set_xlabel("날짜")
-        ax.set_ylabel("가격")
+        ax.set_title(f"{ticker.upper()} Price and MA Crossover Signals")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price")
         ax.grid(True)
 
-        # 범례를 그래프 오른쪽 밖으로 이동
-        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=10)
 
         st.pyplot(fig)
 
     except Exception as e:
-        st.error(f"⚠️ 데이터 처리 중 오류가 발생했습니다: {e}")
+        st.error(f"⚠️ Error processing data: {e}")
+
 
 
