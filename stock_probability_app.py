@@ -22,9 +22,18 @@ if ticker:
         stock = yf.Ticker(ticker)
         current_price = stock.history(period="1d")["Close"].iloc[-1]
 
-        # --- Suggested Buy/Sell Prices ---
+        # --- Suggested Buy/Sell Prices 개선 ---
+        max_price_5y = hist['Close'].max()
+
+        if max_price_5y > current_price * 1.2:
+            # 과거 최고가가 현재가보다 20% 이상 높으면 최고가의 90%를 매도권장가로
+            suggested_sell = max_price_5y * 0.9
+        else:
+            # 그렇지 않으면 현재가의 1.2배를 매도권장가로
+            suggested_sell = current_price * 1.2
+
+        # 매수 권장가는 기존처럼 0.84배로 유지
         suggested_buy = current_price * 0.84
-        suggested_sell = current_price * 2.2
 
         # --- Current Price Info with colored buy/sell prices ---
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
@@ -58,7 +67,9 @@ if ticker:
         ax.set_title(f"{ticker.upper()} - Historical Price & Long-Term Moving Averages")
         ax.set_ylabel("Price")
         ax.set_xlabel("Date")
-        ax.legend(loc='upper left')
+
+        # 범례를 아래쪽으로 배치
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
         ax.grid(True)
         st.pyplot(fig)
 
@@ -99,6 +110,7 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
 
 
 
