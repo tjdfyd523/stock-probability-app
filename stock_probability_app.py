@@ -122,12 +122,12 @@ if ticker:
             "1 Year": 252,
         }
 
+        # Predicted price display with probability
         for label, days in periods_prob.items():
             predicted_price = calculate_predicted_price(current_price, avg_daily_return, days)
+            up_prob = up_probs.iloc[-1] if up_probs.iloc[-1] is not np.nan else 0
             st.markdown(f"💡 **{label} Later:** `${predicted_price:.2f}`")
-            st.markdown(f"📊 **Probability of Price Being Higher**: <span style='color:red'>{up_probs.iloc[-1] * 100:.2f}%</span>", unsafe_allow_html=True)
+            st.markdown(f"📊 **Probability of Price Being Higher**: <span style='color:red'>{up_prob * 100:.2f}%</span>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
-
-
