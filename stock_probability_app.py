@@ -79,15 +79,20 @@ def zigzag_pandas(price_series, pct=5):
 if ticker:
     try:
         hist = load_price_history(ticker)
-        hist['Close'] = hist['Adj Close']
 
-        # 지표 계산
+        # 종가 기준 설정 (Adj Close가 없으면 Close 사용)
+        if 'Adj Close' in hist.columns:
+            hist['Close'] = hist['Adj Close']
+        else:
+            hist['Close'] = hist['Close']
+
+        # 기술 지표 계산
         hist['RSI'] = compute_rsi(hist['Close'])
         hist['MACD'], hist['MACD_signal'] = compute_macd(hist['Close'])
         hist['UpperBand'], hist['MiddleBand'], hist['LowerBand'] = compute_bollinger_bands(hist['Close'])
         hist['ZigZag'] = zigzag_pandas(hist['Close'], pct=5)
 
-        # 매매 시그널 계산
+        # 매수/매도 신호 계산
         buy_signals = []
         sell_signals = []
 
