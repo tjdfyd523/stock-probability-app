@@ -26,26 +26,15 @@ def up_down_probability(hist, period_days):
     return up_prob, down_prob
 
 def detect_peak_sell_signals(prices, threshold=0.10):
-    peaks = []
     sells = []
-
-    temp_min = prices[0]
     peak = prices[0]
-
     for i in range(1, len(prices)):
         price = prices[i]
-
-        # New peak
         if price > peak:
             peak = price
-
-        # Drop more than threshold from peak
-        if price <= peak * (1 - threshold):
-            peaks.append(peak)
+        elif price <= peak * (1 - threshold):
             sells.append((prices.index[i], price))
-            temp_min = price
-            peak = price  # reset
-
+            peak = price  # reset after sell signal
     return sells
 
 if ticker:
@@ -62,21 +51,22 @@ if ticker:
         ax.plot(hist.index, hist['MA_6M'], label='6-Month MA', color='orange', linestyle='--')
         ax.plot(hist.index, hist['MA_1Y'], label='1-Year MA', color='green', linestyle='--')
 
-        # Buy signals (red ↑)
+        # Buy signals (6M > 1Y MA)
         ax.scatter(buy_points.index, buy_points.values, marker='^', color='red', s=100, label='Buy Signal (6M > 1Y MA)')
 
-        # Sell signals (blue ↓)
+        # Sell signals (Peak -10%)
         for sell_date, sell_price in sell_signals:
             ax.scatter(sell_date, sell_price, marker='v', color='blue', s=100)
 
+        # Formatting
         ax.set_title(f"{ticker.upper()} Buy/Sell Signals (5Y)")
         ax.set_xlabel("Date")
         ax.set_ylabel("Price")
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), ncol=2, fontsize=10)
         ax.grid(True)
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=10)
         st.pyplot(fig)
 
-        # --- Probabilities ---
+        # Probabilities
         st.subheader(f"{ticker.upper()} Up/Down Probabilities")
         periods = {
             "1 Day": 1,
@@ -95,7 +85,4 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Error loading data for {ticker}: {e}")
-
-
-
 
