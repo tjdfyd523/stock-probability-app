@@ -3,109 +3,95 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.signal import argrelextrema
+import talib
 
-# --- Page Setup ---
-st.set_page_config(page_title="📈 Stock Up/Down Forecast", layout="centered")
-st.title("📈 Stock Up/Down Probability with Real-Time Price")
+# --- 페이지 설정 ---
+st.set_page_config(page_title="📈 주식 매매 예측", layout="centered")
+st.title("📈 주식 매수/매도 예측 (ZigZag + 기술 지표)")
 
-# --- Ticker Input ---
-ticker = st.text_input("Enter ticker (e.g., AAPL, 005930.KS)", value="SOXL")
+# --- 티커 입력 ---
+ticker = st.text_input("티커를 입력하세요 (예: AAPL, 005930.KS)", value="SOXL")
 
 @st.cache_data
 def load_price_history(ticker):
     return yf.Ticker(ticker).history(period="5y")
 
-def find_cross_price(series1, series2):
-    """Find most recent upward crossover point and return close price at that time."""
-    cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
-    if cross.any():
-        return hist.loc[cross, "Close"].iloc[-1]
-    return None
-
 if ticker:
     try:
-        # Load historical data
+        # 히스토리 데이터 로드
         hist = load_price_history(ticker)
-        stock = yf.Ticker(ticker)
-        current_price = stock.history(period="1d")["Close"].iloc[-1]
+        hist['Close'] = hist['Adj Close']
+        hist['Volume'] = hist['Volume']
 
-        # --- Moving Averages ---
-        hist["MA_6M"] = hist["Close"].rolling(window=126).mean()
-        hist["MA_1Y"] = hist["Close"].rolling(window=252).mean()
-        hist["MA_2Y"] = hist["Close"].rolling(window=504).mean()
+        # --- ZigZag 알고리즘을 통한 웨이브 분석 ---
+        def calculate_zigzag(data, threshold):
+            zigzag = pd.Series(index=data.index)
+            trend = None
+            last_pivot = None
+            for i in range(1, len(data)):
+                if trend is None:
+                    trend = 'up' if data[i] > data[i-1] else 'down'
+                    last_pivot = data[i]
+                elif trend == 'up' and data[i] < last_pivot * (1 - threshold):
+                    zigzag.iloc[i] = last_pivot
+                    trend = 'down'
+                    last_pivot = data[i]
+                elif trend == 'down' and data[i] > last_pivot * (1 + threshold):
+                    zigzag.iloc[i] = last_pivot
+                    trend = 'up'
+                    last_pivot = data[i]
+            return zigzag
 
-        # --- 매수 권장가: 골든크로스 기반 ---
-        # 원래 2차 → 1차로 표시
-        buy_price_1 = find_cross_price(hist["MA_1Y"], hist["MA_2Y"])  # 골든크로스 1Y > 2Y
+        # ZigZag 계산 (5% 기준)
+        threshold = 0.05
+        hist['ZigZag'] = calculate_zigzag(hist['Close'], threshold)
 
-        # --- 매도 권장가: 웨이브 최고점 기반 하락 %
-        wave_high = hist["Close"].rolling(window=252).max().iloc[-1]  # 최근 1년 최고가
-        sell_price_1 = wave_high * 0.90
-        sell_price_2 = wave_high * 0.85
+        # --- 기술 지표 계산 ---
+        hist['RSI'] = talib.RSI(hist['Close'], timeperiod=14)
+        hist['MACD'], hist['MACD_signal'], _ = talib.MACD(hist['Close'], fastperiod=12, slowperiod=26, signalperiod=9)
+        hist['UpperBand'], hist['MiddleBand'], hist['LowerBand'] = talib.BBANDS(hist['Close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
 
-        # --- Price Display ---
-        st.subheader(f"💰 Current Price: ${current_price:.2f}")
-        if buy_price_1:
-            st.markdown(f"📌 **1차 매수 권장가 (1Y > 2Y 골든크로스):** <span style='color:green; font-weight:bold'>${buy_price_1:.2f}</span>", unsafe_allow_html=True)
-        st.markdown(f"📌 **1차 매도 권장가 (고점 대비 -10%):** <span style='color:red; font-weight:bold'>${sell_price_1:.2f}</span>", unsafe_allow_html=True)
-        st.markdown(f"📌 **2차 매도 권장가 (고점 대비 -15%):** <span style='color:darkred; font-weight:bold'>${sell_price_2:.2f}</span>", unsafe_allow_html=True)
+        # --- 매수/매도 시점 계산 ---
+        buy_signals = []
+        sell_signals = []
 
-        # --- 📊 Graph ---
-        st.subheader("📊 5-Year Price Chart with Moving Averages and Entry/Exit Zones")
+        for i in range(1, len(hist)):
+            # 매수 조건
+            if hist['ZigZag'].iloc[i] > hist['ZigZag'].iloc[i-1] and hist['RSI'].iloc[i] < 30 and hist['MACD'].iloc[i] > hist['MACD_signal'].iloc[i]:
+                buy_signals.append(hist['Close'].iloc[i])
+                sell_signals.append(np.nan)
+            # 매도 조건
+            elif hist['ZigZag'].iloc[i] < hist['ZigZag'].iloc[i-1] and hist['RSI'].iloc[i] > 70 and hist['MACD'].iloc[i] < hist['MACD_signal'].iloc[i]:
+                buy_signals.append(np.nan)
+                sell_signals.append(hist['Close'].iloc[i])
+            else:
+                buy_signals.append(np.nan)
+                sell_signals.append(np.nan)
+
+        hist['Buy_Signal_price'] = buy_signals
+        hist['Sell_Signal_price'] = sell_signals
+
+        # --- 차트 그리기 ---
+        st.subheader(f"{ticker.upper()}의 5년간 주가 및 매매 신호")
+
         fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(hist.index, hist["Close"], label="Close Price", color="black", linewidth=1)
-        ax.plot(hist.index, hist["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
-        ax.plot(hist.index, hist["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
-        ax.plot(hist.index, hist["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
+        ax.plot(hist.index, hist['Close'], label="종가", color='black', linewidth=1)
+        ax.plot(hist.index, hist['UpperBand'], label="상한선 (Bollinger)", linestyle='--', color='red')
+        ax.plot(hist.index, hist['MiddleBand'], label="중앙선 (Bollinger)", linestyle='--', color='green')
+        ax.plot(hist.index, hist['LowerBand'], label="하한선 (Bollinger)", linestyle='--', color='blue')
 
-        if buy_price_1:
-            ax.axhline(buy_price_1, color="green", linestyle=":", label=f"1차 매수 @ ${buy_price_1:.2f}")
-        ax.axhline(sell_price_1, color="red", linestyle="--", label=f"1차 매도 @ ${sell_price_1:.2f}")
-        ax.axhline(sell_price_2, color="darkred", linestyle="--", label=f"2차 매도 @ ${sell_price_2:.2f}")
+        ax.scatter(hist.index, hist['Buy_Signal_price'], label="매수 신호", marker='^', color='green', alpha=1)
+        ax.scatter(hist.index, hist['Sell_Signal_price'], label="매도 신호", marker='v', color='red', alpha=1)
 
-        ax.set_title(f"{ticker.upper()} - Price & Strategy-Based Entry/Exit Zones")
-        ax.set_ylabel("Price")
-        ax.set_xlabel("Date")
+        ax.set_title(f"{ticker.upper()} - 5년간 주가 및 매매 신호")
+        ax.set_xlabel("날짜")
+        ax.set_ylabel("가격")
         ax.legend(loc='upper left')
         ax.grid(True)
         st.pyplot(fig)
 
-        # --- Probabilities ---
-        st.subheader(f"{ticker.upper()} Up/Down Probabilities")
-
-        def up_down_probability(period_days):
-            future_returns = hist["Close"].pct_change(periods=period_days).dropna()
-            up_prob = (future_returns > 0).mean() * 100
-            down_prob = 100 - up_prob
-            return up_prob, down_prob
-
-        periods = {
-            "1 Day": 1,
-            "1 Week": 5,
-            "1 Month": 21,
-            "1 Year": 252,
-        }
-
-        for label, days in periods.items():
-            up, down = up_down_probability(days)
-            st.markdown(
-                f"**{label} Later →** Up Probability: "
-                f"<span style='color:red'>{up:.2f}%</span>, "
-                f"Down Probability: <span style='color:blue'>{down:.2f}%</span>",
-                unsafe_allow_html=True
-            )
-
-        # --- Forecast Prices ---
-        st.subheader("📈 Predicted Future Prices (Using Moving Average Return)")
-
-        daily_returns = hist["Close"].pct_change().dropna()
-        avg_daily_return = daily_returns.mean()
-
-        for label, days in periods.items():
-            predicted_price = current_price * ((1 + avg_daily_return) ** days)
-            st.markdown(f"💡 **{label} Later:** `${predicted_price:.2f}`")
-
     except Exception as e:
-        st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+        st.error(f"⚠️ 티커 `{ticker}`의 데이터를 가져오는 데 실패했습니다.\n\n자세한 내용: {e}")
 
 
