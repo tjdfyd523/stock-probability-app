@@ -17,7 +17,7 @@ def load_price_history(ticker):
 
 if ticker:
     try:
-        # Load historical data
+        # Load historical data (5 years fixed for analysis)
         hist = load_price_history(ticker)
         stock = yf.Ticker(ticker)
         current_price = stock.history(period="1d")["Close"].iloc[-1]
@@ -26,16 +26,13 @@ if ticker:
         max_price_5y = hist['Close'].max()
 
         if max_price_5y > current_price * 1.2:
-            # 과거 최고가가 현재가보다 20% 이상 높으면 최고가의 90%를 매도권장가로
             suggested_sell = max_price_5y * 0.9
         else:
-            # 그렇지 않으면 현재가의 1.2배를 매도권장가로
             suggested_sell = current_price * 1.2
 
-        # 매수 권장가는 기존처럼 0.84배로 유지
         suggested_buy = current_price * 0.84
 
-        # --- Current Price Info with colored buy/sell prices ---
+        # --- Current Price Info ---
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
         st.markdown(
             f"📌 Suggested Buy Price: <span style='color:red; font-weight:bold'>${suggested_buy:.2f}</span>",
@@ -46,32 +43,60 @@ if ticker:
             unsafe_allow_html=True
         )
 
-        # --- Long-Term Moving Averages ---
+        # --- Calculate Moving Averages ---
         hist["MA_6M"] = hist["Close"].rolling(window=126).mean()
         hist["MA_1Y"] = hist["Close"].rolling(window=252).mean()
         hist["MA_2Y"] = hist["Close"].rolling(window=504).mean()
 
-        # --- 📊 Graph (below price info) ---
+        # --- 1) 5-Year Price Chart with Moving Averages ---
         st.subheader("📊 5-Year Price Chart with Long-Term Moving Averages")
 
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(hist.index, hist["Close"], label="Close Price", color="black", linewidth=1)
-        ax.plot(hist.index, hist["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
-        ax.plot(hist.index, hist["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
-        ax.plot(hist.index, hist["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
+        fig1, ax1 = plt.subplots(figsize=(10, 5))
+        ax1.plot(hist.index, hist["Close"], label="Close Price", color="black", linewidth=1)
+        ax1.plot(hist.index, hist["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
+        ax1.plot(hist.index, hist["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
+        ax1.plot(hist.index, hist["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
 
-        # Buy/Sell guide lines
-        ax.axhline(suggested_buy, color="red", linestyle=":", label=f"Buy @ ${suggested_buy:.2f}")
-        ax.axhline(suggested_sell, color="blue", linestyle=":", label=f"Sell @ ${suggested_sell:.2f}")
+        ax1.axhline(suggested_buy, color="red", linestyle=":", label=f"Buy @ ${suggested_buy:.2f}")
+        ax1.axhline(suggested_sell, color="blue", linestyle=":", label=f"Sell @ ${suggested_sell:.2f}")
 
-        ax.set_title(f"{ticker.upper()} - Historical Price & Long-Term Moving Averages")
-        ax.set_ylabel("Price")
-        ax.set_xlabel("Date")
+        ax1.set_title(f"{ticker.upper()} - 5-Year Historical Price & MAs")
+        ax1.set_ylabel("Price")
+        ax1.set_xlabel("Date")
+        ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
+        ax1.grid(True)
+        st.pyplot(fig1)
 
-        # 범례를 아래쪽으로 배치
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
-        ax.grid(True)
-        st.pyplot(fig)
+        # --- 2) 기간 선택 슬라이더 ---
+        st.subheader("📅 Select Period for Custom Chart (1 Month ~ 5 Years)")
+
+        # 1개월 ~ 5년(252 trading days * 5 = 1260)
+        period_days = st.slider("Select number of trading days to display:", min_value=21, max_value=1260, value=252, step=21)
+
+        # 기간 필터링 (최근 period_days만)
+        hist_period = hist.tail(period_days).copy()
+
+        # 이동평균 다시 계산 (선택 기간이 적으면 rolling window 주의)
+        hist_period["MA_6M"] = hist_period["Close"].rolling(window=126, min_periods=1).mean()
+        hist_period["MA_1Y"] = hist_period["Close"].rolling(window=252, min_periods=1).mean()
+        hist_period["MA_2Y"] = hist_period["Close"].rolling(window=504, min_periods=1).mean()
+
+        # --- Custom Period Chart ---
+        fig2, ax2 = plt.subplots(figsize=(10, 5))
+        ax2.plot(hist_period.index, hist_period["Close"], label="Close Price", color="black", linewidth=1)
+        ax2.plot(hist_period.index, hist_period["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
+        ax2.plot(hist_period.index, hist_period["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
+        ax2.plot(hist_period.index, hist_period["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
+
+        ax2.axhline(suggested_buy, color="red", linestyle=":", label=f"Buy @ ${suggested_buy:.2f}")
+        ax2.axhline(suggested_sell, color="blue", linestyle=":", label=f"Sell @ ${suggested_sell:.2f}")
+
+        ax2.set_title(f"{ticker.upper()} - Last {period_days} Trading Days Price & MAs")
+        ax2.set_ylabel("Price")
+        ax2.set_xlabel("Date")
+        ax2.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
+        ax2.grid(True)
+        st.pyplot(fig2)
 
         # --- Probabilities ---
         st.subheader(f"{ticker.upper()} Up/Down Probabilities")
@@ -110,6 +135,7 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
 
 
 
