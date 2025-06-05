@@ -14,41 +14,10 @@ def load_price_history(ticker):
     return yf.Ticker(ticker).history(period="5y")
 
 def find_buy_signals(df):
-    # 6M MA가 1Y MA를 위로 교차하는 시점
     buy_signals = []
     for i in range(1, len(df)):
         if df["MA_6M"].iloc[i-1] < df["MA_1Y"].iloc[i-1] and df["MA_6M"].iloc[i] >= df["MA_1Y"].iloc[i]:
             buy_signals.append(df.index[i])
-    return buy_signals
-
-def find_wave_buy_signals(df, tolerance=0.02):
-    """
-    상승 웨이브 고점 분석하여,
-    이전 상승 웨이브 고점 대비 새로운 고점이 생긴 후,
-    종가가 이전 고점 ±tolerance 범위 내로 다시 하락할 때 매수 시그널 발생
-    """
-    # 웨이브 고점 찾기: 종가가 전후로 하락하는 지점 (local maxima)
-    close = df["Close"]
-    wave_highs = []
-    for i in range(1, len(close)-1):
-        if close[i] > close[i-1] and close[i] > close[i+1]:
-            wave_highs.append((df.index[i], close[i]))
-
-    buy_signals = []
-    prev_high = None
-    for i in range(1, len(wave_highs)):
-        current_high_date, current_high_price = wave_highs[i]
-        prev_high_date, prev_high_price = wave_highs[i-1]
-
-        # 현재 고점이 이전 고점보다 높을 때만 체크
-        if current_high_price > prev_high_price:
-            # 이후 데이터 중 종가가 이전 고점 ±tolerance 범위로 떨어지는 시점 탐색
-            search_start = df.index.get_loc(current_high_date)
-            for j in range(search_start+1, len(df)):
-                price_j = df["Close"].iloc[j]
-                if abs(price_j - prev_high_price)/prev_high_price <= tolerance:
-                    buy_signals.append(df.index[j])
-                    break  # 한 번 신호 발생 후 다음 고점으로 넘어감
     return buy_signals
 
 if ticker:
@@ -68,7 +37,6 @@ if ticker:
         hist_period["MA_2Y"] = hist_period["Close"].rolling(window=504, min_periods=1).mean()
 
         buy_signals_ma = find_buy_signals(hist_period)
-        buy_signals_wave = find_wave_buy_signals(hist_period, tolerance=0.02)
 
         recent_peak = hist_period["Close"].max()
         suggested_sell = recent_peak * 0.9
@@ -89,13 +57,8 @@ if ticker:
         ax.axhline(suggested_buy, color="red", linestyle=":", label=f"Suggested Buy (${suggested_buy:.2f})")
         ax.axhline(suggested_sell, color="blue", linestyle=":", label=f"Suggested Sell (${suggested_sell:.2f})")
 
-        # MA 골든크로스 매수 시그널
         if buy_signals_ma:
             ax.scatter(buy_signals_ma, hist_period.loc[buy_signals_ma]["Close"], color="red", label="MA Cross Buy Signal", marker="^", s=100)
-
-        # Wave 기반 매수 시그널
-        if buy_signals_wave:
-            ax.scatter(buy_signals_wave, hist_period.loc[buy_signals_wave]["Close"], color="magenta", label="Wave-based Buy Signal", marker="*", s=120)
 
         ax.set_title(f"{ticker.upper()} Price & Moving Averages")
         ax.set_xlabel("Date")
@@ -104,7 +67,6 @@ if ticker:
         ax.grid(True)
         st.pyplot(fig)
 
-        # --- 확률 예측 ---
         st.subheader(f"{ticker.upper()} Up/Down Probabilities")
 
         def up_down_probability(days):
@@ -129,7 +91,6 @@ if ticker:
                 unsafe_allow_html=True
             )
 
-        # --- 예측 가격 ---
         st.subheader("📈 Predicted Future Prices (Based on Average Daily Return)")
 
         daily_returns = hist["Close"].pct_change().dropna()
