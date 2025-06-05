@@ -2,23 +2,44 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
-# 페이지 설정
-st.set_page_config(page_title="📈 MA Strategy vs Buy & Hold", layout="centered")
-st.title("📊 MA Crossover Strategy vs Buy & Hold Backtest")
+# RSI 계산 함수 (직접 구현, talib 없이)
+def compute_rsi(series, period=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    avg_loss = loss.rolling(window=period, min_periods=period).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-# 입력
+# --- 페이지 설정 ---
+st.set_page_config(page_title="📈 MA+RSI Strategy Backtest", layout="centered")
+st.title("📊 MA Crossover + RSI Filter Strategy vs Buy & Hold")
+
 ticker = st.text_input("Enter stock ticker (e.g., AAPL, SOXL, 005930.KS)", value="AAPL")
 
 @st.cache_data
 def load_price_history(ticker):
     return yf.Ticker(ticker).history(period="5y")
 
-def find_buy_signals(short_ma, long_ma):
-    cross_up = (short_ma > long_ma) & (short_ma.shift(1) <= long_ma.shift(1))
-    return short_ma[cross_up]
+def find_buy_signals(hist):
+    # MA 계산
+    hist['MA_6M'] = hist['Close'].rolling(window=126).mean()
+    hist['MA_1Y'] = hist['Close'].rolling(window=252).mean()
 
-# 전략 백테스트
+    # RSI 계산
+    hist['RSI'] = compute_rsi(hist['Close'], 14)
+
+    # 매수 신호: 6M MA가 1Y MA를 아래에서 위로 교차 & RSI 30~70 사이
+    cross_up = (hist['MA_6M'] > hist['MA_1Y']) & (hist['MA_6M'].shift(1) <= hist['MA_1Y'].shift(1))
+    rsi_condition = hist['RSI'].between(30, 70)
+    buy_signals = cross_up & rsi_condition
+
+    return buy_signals
+
 def backtest_strategy(hist, buy_signals):
     balance = 10000
     position = 0
@@ -30,14 +51,15 @@ def backtest_strategy(hist, buy_signals):
         price = hist.loc[date, 'Close']
 
         # 매수
-        if date in buy_signals.index and not in_trade:
+        if buy_signals.loc[date] and not in_trade:
             position = balance / price
             balance = 0
             in_trade = True
             trade_log.append((date, "BUY", price))
 
-        # 매도
-        elif hist['MA_6M'][date] < hist['MA_1Y'][date] and in_trade:
+        # 매도: 6M MA가 1Y MA를 위에서 아래로 교차할 때 매도
+        cross_down = (hist['MA_6M'] < hist['MA_1Y']) & (hist['MA_6M'].shift(1) >= hist['MA_1Y'].shift(1))
+        if cross_down.loc[date] and in_trade:
             balance = position * price
             position = 0
             in_trade = False
@@ -54,53 +76,43 @@ def backtest_strategy(hist, buy_signals):
 
     return balance, trade_log, pd.DataFrame(value_list, columns=["Date", "Portfolio"]).set_index("Date")
 
-# Buy & Hold 계산
 def buy_and_hold(hist, initial=10000):
     start_price = hist['Close'].iloc[0]
     units = initial / start_price
     hist['BuyHold'] = units * hist['Close']
     return hist['BuyHold']
 
-# 확률 예측
 def up_down_probability(hist, period_days):
     future_returns = hist["Close"].pct_change(periods=period_days).dropna()
     up_prob = (future_returns > 0).mean() * 100
     return up_prob, 100 - up_prob
 
-# 실행
 if ticker:
     try:
         hist = load_price_history(ticker)
-        hist['MA_6M'] = hist['Close'].rolling(window=126).mean()
-        hist['MA_1Y'] = hist['Close'].rolling(window=252).mean()
-        hist['MA_2Y'] = hist['Close'].rolling(window=504).mean()
+
+        buy_signals = find_buy_signals(hist)
+        final_val, trades, strategy_df = backtest_strategy(hist, buy_signals)
+        buy_hold = buy_and_hold(hist)
 
         current_price = yf.Ticker(ticker).history(period="1d")["Close"].iloc[-1]
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
 
-        # 매수 신호
-        buy_signals = find_buy_signals(hist['MA_6M'], hist['MA_1Y'])
-
-        # 백테스트 실행
-        final_val, trades, strategy_df = backtest_strategy(hist, buy_signals)
-        buy_hold = buy_and_hold(hist)
-
-        # 그래프
-        fig, ax = plt.subplots(figsize=(12, 6))
+        # 그래프 그리기
+        fig, ax = plt.subplots(figsize=(12,6))
         ax.plot(hist.index, hist['Close'], label='Close Price', color='black')
         ax.plot(hist.index, hist['MA_6M'], label='6M MA', linestyle='--', color='orange')
         ax.plot(hist.index, hist['MA_1Y'], label='1Y MA', linestyle='--', color='green')
-        ax.plot(hist.index, hist['MA_2Y'], label='2Y MA', linestyle='--', color='blue')
-        ax.scatter(buy_signals.index, buy_signals.values, marker='^', color='red', s=100, label='Buy Signal')
-        ax.set_title(f"{ticker.upper()} - Price & Buy Signals")
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), ncol=3)
+        ax.scatter(hist.index[buy_signals], hist['Close'][buy_signals], marker='^', color='red', s=100, label='Buy Signal')
+        ax.set_title(f"{ticker.upper()} - Price & Buy Signals (MA+RSI)")
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
         ax.grid(True)
         st.pyplot(fig)
 
-        # 수익률 그래프
+        # 수익률 비교
         st.subheader("📈 Strategy vs Buy & Hold Performance")
-        fig2, ax2 = plt.subplots(figsize=(12, 5))
-        ax2.plot(strategy_df.index, strategy_df['Portfolio'], label='MA Strategy', color='red')
+        fig2, ax2 = plt.subplots(figsize=(12,5))
+        ax2.plot(strategy_df.index, strategy_df['Portfolio'], label='MA+RSI Strategy', color='red')
         ax2.plot(buy_hold.index, buy_hold.values, label='Buy & Hold', color='blue')
         ax2.set_ylabel("Portfolio Value ($)")
         ax2.set_title("Backtest: Strategy vs Buy & Hold")
@@ -108,13 +120,14 @@ if ticker:
         ax2.grid(True)
         st.pyplot(fig2)
 
-        st.markdown(f"📊 Final MA Strategy Value: **${final_val:,.2f}**")
+        st.markdown(f"📊 Final MA+RSI Strategy Value: **${final_val:,.2f}**")
         st.markdown(f"📊 Final Buy & Hold Value: **${buy_hold.iloc[-1]:,.2f}**")
 
         with st.expander("📋 Trade Log"):
             for date, action, price in trades:
                 st.write(f"{date.date()} - {action} @ ${price:.2f}")
 
+        # 확률 예측
         st.subheader("📊 Up/Down Probability")
         periods = {"1 Day": 1, "1 Week": 5, "1 Month": 21, "1 Year": 252}
         for label, days in periods.items():
