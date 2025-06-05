@@ -48,13 +48,7 @@ if ticker:
 
         ma_buy_signals = find_ma_buy_signals(hist_period)
 
-        recent_peak = hist_period["Close"].max()
-        suggested_sell = recent_peak * 0.9
-        suggested_buy = hist_period["MA_6M"].iloc[-1]
-
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
-        st.markdown(f"📌 Suggested Buy Price: <span style='color:red; font-weight:bold'>${suggested_buy:.2f}</span>", unsafe_allow_html=True)
-        st.markdown(f"📌 Suggested Sell Price: <span style='color:blue; font-weight:bold'>${suggested_sell:.2f}</span>", unsafe_allow_html=True)
 
         st.subheader(f"📊 Price Chart & Moving Averages - Last {selected_months} Month{'s' if selected_months > 1 else ''}")
 
@@ -63,9 +57,6 @@ if ticker:
         ax.plot(hist_period.index, hist_period["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
         ax.plot(hist_period.index, hist_period["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
         ax.plot(hist_period.index, hist_period["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
-
-        ax.axhline(suggested_buy, color="red", linestyle=":", label=f"Suggested Buy (${suggested_buy:.2f})")
-        ax.axhline(suggested_sell, color="blue", linestyle=":", label=f"Suggested Sell (${suggested_sell:.2f})")
 
         # Find rice bowl zone
         bowl_start, bowl_end, bowl_low, bowl_high = find_rice_bowl_zone(hist_period, window=30)
@@ -158,5 +149,6 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
 
 
