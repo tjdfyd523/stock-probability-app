@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="📈 MA Crossover Buy/Sell Signals", layout="centered")
-st.title("📈 Moving Average Crossover Based Buy/Sell Recommendations")
+st.set_page_config(page_title="📈 Stock Up/Down & MA Crossover Signals", layout="centered")
+st.title("📈 Stock Up/Down Probabilities & Moving Average Crossover Signals")
 
 ticker = st.text_input("Enter stock ticker (e.g., AAPL, 005930.KS)", value="SOXL")
 
@@ -30,6 +30,12 @@ def get_cross_points(ma_short, ma_long):
         cross_vals.append(val)
     return cross_dates, cross_vals, crosses.dropna().values
 
+def up_down_probability(hist, period_days):
+    future_returns = hist["Close"].pct_change(periods=period_days).dropna()
+    up_prob = (future_returns > 0).mean() * 100
+    down_prob = 100 - up_prob
+    return up_prob, down_prob
+
 if ticker:
     try:
         hist = load_price_history(ticker)
@@ -39,14 +45,15 @@ if ticker:
         hist["MA_1Y"] = hist["Close"].rolling(window=252).mean()
         hist["MA_2Y"] = hist["Close"].rolling(window=504).mean()
 
+        # Moving average cross points
         buy1_dates, buy1_vals, buy1_types = get_cross_points(hist["MA_6M"], hist["MA_1Y"])
         buy2_dates, buy2_vals, buy2_types = get_cross_points(hist["MA_1Y"], hist["MA_2Y"])
 
         buy1_price = buy1_vals[-1] if len(buy1_vals) > 0 else None
         buy2_price = buy2_vals[-1] if len(buy2_vals) > 0 else None
 
-        sell1_price = None
-        sell1_date = None
+        # Sell signals based on price drops after buys
+        sell1_price, sell1_date = None, None
         if buy1_dates.size > 0:
             buy1_date = buy1_dates[-1]
             max_after_buy1 = hist.loc[buy1_date:]["Close"].cummax()
@@ -57,8 +64,7 @@ if ticker:
                 sell1_price = current_close[condition_10].iloc[0]
                 sell1_date = current_close[condition_10].index[0]
 
-        sell2_price = None
-        sell2_date = None
+        sell2_price, sell2_date = None, None
         if buy2_dates.size > 0:
             buy2_date = buy2_dates[-1]
             max_after_buy2 = hist.loc[buy2_date:]["Close"].cummax()
@@ -69,28 +75,26 @@ if ticker:
                 sell2_price = current_close2[condition_15].iloc[0]
                 sell2_date = current_close2[condition_15].index[0]
 
+        # Show current price and buy/sell recommendations
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
-
         if buy1_price is not None:
             st.markdown(f"📌 1st Buy Recommendation (6M MA crosses above 1Y MA): ${buy1_price:.2f}")
         else:
             st.markdown("📌 No 1st buy signal found.")
-
         if buy2_price is not None:
             st.markdown(f"📌 2nd Buy Recommendation (1Y MA crosses above 2Y MA): ${buy2_price:.2f}")
         else:
             st.markdown("📌 No 2nd buy signal found.")
-
         if sell1_price is not None:
             st.markdown(f"📌 1st Sell Recommendation (10% drop from highest price after 1st buy): ${sell1_price:.2f}")
         else:
             st.markdown("📌 No 1st sell signal found.")
-
         if sell2_price is not None:
             st.markdown(f"📌 2nd Sell Recommendation (15% drop from highest price after 2nd buy): ${sell2_price:.2f}")
         else:
             st.markdown("📌 No 2nd sell signal found.")
 
+        # Plot chart with MAs and buy/sell signals
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.plot(hist.index, hist["Close"], label="Close Price", color="black")
         ax.plot(hist.index, hist["MA_6M"], label="6-Month MA", color="orange", linestyle="--")
@@ -103,20 +107,42 @@ if ticker:
         for date, val, typ in zip(buy2_dates, buy2_vals, buy2_types):
             if typ == 'up':
                 ax.scatter(date, val, marker="^", color="pink", s=120, label="2nd Buy Signal" if date == buy2_dates[0] else "")
-
-        if sell1_price is not None and sell1_date is not None:
+        if sell1_price and sell1_date:
             ax.scatter(sell1_date, sell1_price, marker="v", color="blue", s=120, label="1st Sell Signal")
-        if sell2_price is not None and sell2_date is not None:
+        if sell2_price and sell2_date:
             ax.scatter(sell2_date, sell2_price, marker="v", color="deepskyblue", s=120, label="2nd Sell Signal")
 
         ax.set_title(f"{ticker.upper()} Price and MA Crossover Signals")
         ax.set_xlabel("Date")
         ax.set_ylabel("Price")
         ax.grid(True)
-
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=10)
-
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=4, fontsize=10)
         st.pyplot(fig)
+
+        # --- Probabilities ---
+        st.subheader(f"{ticker.upper()} Up/Down Probabilities")
+        periods = {
+            "1 Day": 1,
+            "1 Week": 5,
+            "1 Month": 21,
+            "1 Year": 252,
+        }
+        for label, days in periods.items():
+            up, down = up_down_probability(hist, days)
+            st.markdown(
+                f"**{label} Later →** Up Probability: "
+                f"<span style='color:red'>{up:.2f}%</span>, "
+                f"Down Probability: <span style='color:blue'>{down:.2f}%</span>",
+                unsafe_allow_html=True
+            )
+
+        # --- Predicted Prices ---
+        st.subheader("📈 Predicted Future Prices (Using Average Daily Return)")
+        daily_returns = hist["Close"].pct_change().dropna()
+        avg_daily_return = daily_returns.mean()
+        for label, days in periods.items():
+            predicted_price = current_price * ((1 + avg_daily_return) ** days)
+            st.markdown(f"💡 **{label} Later:** `${predicted_price:.2f}`")
 
     except Exception as e:
         st.error(f"⚠️ Error processing data: {e}")
