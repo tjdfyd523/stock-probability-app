@@ -16,15 +16,8 @@ def load_price_history(ticker):
     return yf.Ticker(ticker).history(period="5y")
 
 def find_cross_price(series1, series2):
-    """Return the last crossing price where series1 crosses above series2."""
+    """Find most recent upward crossover point and return close price at that time."""
     cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
-    if cross.any():
-        return hist.loc[cross, "Close"].iloc[-1]
-    return None
-
-def find_cross_price_down(series1, series2):
-    """Return the last crossing price where series1 crosses below series2."""
-    cross = (series1 < series2) & (series1.shift(1) >= series2.shift(1))
     if cross.any():
         return hist.loc[cross, "Close"].iloc[-1]
     return None
@@ -42,26 +35,23 @@ if ticker:
         hist["MA_2Y"] = hist["Close"].rolling(window=504).mean()
 
         # --- 매수 권장가: 골든크로스 기반 ---
-        buy_price_1 = find_cross_price(hist["MA_6M"], hist["MA_1Y"])
-        buy_price_2 = find_cross_price(hist["MA_1Y"], hist["MA_2Y"])
+        # 원래 2차 → 1차로 표시
+        buy_price_1 = find_cross_price(hist["MA_1Y"], hist["MA_2Y"])  # 골든크로스 1Y > 2Y
 
-        # --- 매도 권장가: 데드크로스 기반 ---
-        sell_price_1 = find_cross_price_down(hist["MA_6M"], hist["MA_1Y"])
-        sell_price_2 = find_cross_price_down(hist["MA_1Y"], hist["MA_2Y"])
+        # --- 매도 권장가: 웨이브 최고점 기반 하락 %
+        wave_high = hist["Close"].rolling(window=252).max().iloc[-1]  # 최근 1년 최고가
+        sell_price_1 = wave_high * 0.90
+        sell_price_2 = wave_high * 0.85
 
         # --- Price Display ---
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
         if buy_price_1:
-            st.markdown(f"📌 **1차 매수 권장가 (6M > 1Y 골든크로스):** <span style='color:green; font-weight:bold'>${buy_price_1:.2f}</span>", unsafe_allow_html=True)
-        if buy_price_2:
-            st.markdown(f"📌 **2차 매수 권장가 (1Y > 2Y 골든크로스):** <span style='color:darkgreen; font-weight:bold'>${buy_price_2:.2f}</span>", unsafe_allow_html=True)
-        if sell_price_1:
-            st.markdown(f"📌 **1차 매도 권장가 (6M < 1Y 데드크로스):** <span style='color:red; font-weight:bold'>${sell_price_1:.2f}</span>", unsafe_allow_html=True)
-        if sell_price_2:
-            st.markdown(f"📌 **2차 매도 권장가 (1Y < 2Y 데드크로스):** <span style='color:darkred; font-weight:bold'>${sell_price_2:.2f}</span>", unsafe_allow_html=True)
+            st.markdown(f"📌 **1차 매수 권장가 (1Y > 2Y 골든크로스):** <span style='color:green; font-weight:bold'>${buy_price_1:.2f}</span>", unsafe_allow_html=True)
+        st.markdown(f"📌 **1차 매도 권장가 (고점 대비 -10%):** <span style='color:red; font-weight:bold'>${sell_price_1:.2f}</span>", unsafe_allow_html=True)
+        st.markdown(f"📌 **2차 매도 권장가 (고점 대비 -15%):** <span style='color:darkred; font-weight:bold'>${sell_price_2:.2f}</span>", unsafe_allow_html=True)
 
         # --- 📊 Graph ---
-        st.subheader("📊 5-Year Price Chart with Long-Term Moving Averages")
+        st.subheader("📊 5-Year Price Chart with Moving Averages and Entry/Exit Zones")
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(hist.index, hist["Close"], label="Close Price", color="black", linewidth=1)
         ax.plot(hist.index, hist["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
@@ -70,14 +60,10 @@ if ticker:
 
         if buy_price_1:
             ax.axhline(buy_price_1, color="green", linestyle=":", label=f"1차 매수 @ ${buy_price_1:.2f}")
-        if buy_price_2:
-            ax.axhline(buy_price_2, color="darkgreen", linestyle=":", label=f"2차 매수 @ ${buy_price_2:.2f}")
-        if sell_price_1:
-            ax.axhline(sell_price_1, color="red", linestyle=":", label=f"1차 매도 @ ${sell_price_1:.2f}")
-        if sell_price_2:
-            ax.axhline(sell_price_2, color="darkred", linestyle=":", label=f"2차 매도 @ ${sell_price_2:.2f}")
+        ax.axhline(sell_price_1, color="red", linestyle="--", label=f"1차 매도 @ ${sell_price_1:.2f}")
+        ax.axhline(sell_price_2, color="darkred", linestyle="--", label=f"2차 매도 @ ${sell_price_2:.2f}")
 
-        ax.set_title(f"{ticker.upper()} - Historical Price & Moving Average Crossovers")
+        ax.set_title(f"{ticker.upper()} - Price & Strategy-Based Entry/Exit Zones")
         ax.set_ylabel("Price")
         ax.set_xlabel("Date")
         ax.legend(loc='upper left')
@@ -121,4 +107,5 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
 
