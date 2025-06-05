@@ -48,6 +48,13 @@ def find_confident_signals(df, up_probs, down_probs, threshold=0.75):
 
     return buy_signals, sell_signals
 
+def calculate_predicted_price(current_price, avg_daily_return, days):
+    """
+    Predict future price based on average daily return
+    """
+    predicted_price = current_price * ((1 + avg_daily_return) ** days)
+    return predicted_price
+
 if ticker:
     try:
         hist = load_price_history(ticker)
@@ -133,9 +140,12 @@ if ticker:
         avg_daily_return = daily_returns.mean()
 
         for label, days in periods_prob.items():
-            predicted_price = current_price * ((1 + avg_daily_return) ** days)
+            predicted_price = calculate_predicted_price(current_price, avg_daily_return, days)
+            up, down = up_down_probability(days)
             st.markdown(f"💡 **{label} Later:** `${predicted_price:.2f}`")
+            st.markdown(f"📊 **Probability of Price Being Higher**: <span style='color:red'>{up:.2f}%</span>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
 
