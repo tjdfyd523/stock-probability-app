@@ -69,6 +69,16 @@ def find_trade_signals(df):
 
     return buy_signals, sell_signals
 
+# 매수/매도 권장가 계산 함수
+def calculate_suggested_prices(df):
+    recent_low = df["Close"].rolling(window=60).min().iloc[-1]  # 60일 최저가
+    recent_high = df["Close"].rolling(window=30).max().iloc[-1]  # 30일 최고가
+
+    suggested_buy_price = recent_low * 1.10  # 10% 상승
+    suggested_sell_price = recent_high * 0.93  # 7% 하락
+
+    return suggested_buy_price, suggested_sell_price
+
 if ticker:
     try:
         hist = load_price_history(ticker)
@@ -82,8 +92,13 @@ if ticker:
         # 매수/매도 시점 찾기
         buy_signals, sell_signals = find_trade_signals(hist)
 
+        # 매수/매도 권장가 계산
+        suggested_buy_price, suggested_sell_price = calculate_suggested_prices(hist)
+
         # 현재 가격
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
+        st.markdown(f"📌 Suggested Buy Price: <span class='highlight'>${suggested_buy_price:.2f}</span>", unsafe_allow_html=True)
+        st.markdown(f"📌 Suggested Sell Price: <span class='highlight'>${suggested_sell_price:.2f}</span>", unsafe_allow_html=True)
 
         # 차트 시각화
         st.subheader("📊 Price Chart with Buy/Sell Signals")
@@ -93,10 +108,15 @@ if ticker:
         ax.plot(hist.index, hist["MA_6M"], label="6M MA", linestyle='--', color="orange")
         ax.plot(hist.index, hist["MA_1Y"], label="1Y MA", linestyle='--', color="green")
 
+        # 매수/매도 신호 표시
         if buy_signals:
             ax.scatter(buy_signals, hist.loc[buy_signals]["Close"], color="red", marker="^", s=100, label="Buy Signal")
         if sell_signals:
             ax.scatter(sell_signals, hist.loc[sell_signals]["Close"], color="blue", marker="v", s=100, label="Sell Signal")
+
+        # 매수/매도 권장가 표시
+        ax.axhline(suggested_buy_price, color="green", linestyle="--", label=f"Suggested Buy Price (${suggested_buy_price:.2f})")
+        ax.axhline(suggested_sell_price, color="blue", linestyle="--", label=f"Suggested Sell Price (${suggested_sell_price:.2f})")
 
         ax.set_title(f"{ticker.upper()} Price & Trade Signals")
         ax.set_xlabel("Date")
