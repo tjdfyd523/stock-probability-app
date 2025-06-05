@@ -22,11 +22,21 @@ if ticker:
         stock = yf.Ticker(ticker)
         current_price = stock.history(period="1d")["Close"].iloc[-1]
 
-        # --- Suggested Buy/Sell Prices ---
-        suggested_buy = current_price * 0.84
-        suggested_sell = current_price * 2.2
+        # --- 현실적인 매수/매도 권장가 계산 ---
+        # 매수 권장가: 현재가에서 15% 하락 기준
+        suggested_buy = current_price * 0.85
 
-        # --- Current Price Info with colored buy/sell prices ---
+        # 매도 권장가: 성장률 + 변동성 반영 + 과거 고점 상한
+        five_year_high = hist["Close"].max()
+        avg_5yr_return = hist["Close"].pct_change().mean() * len(hist)
+        reasonable_growth_target = current_price * (1 + avg_5yr_return)
+
+        volatility_factor = hist["Close"].pct_change().std() * 100
+        volatility_adjustment = 1 + min(volatility_factor / 10, 1.0)  # up to 2x
+
+        suggested_sell = min(reasonable_growth_target * volatility_adjustment, five_year_high)
+
+        # --- 현재가 및 매수/매도 정보 표시 ---
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
         st.markdown(
             f"📌 Suggested Buy Price: <span style='color:red; font-weight:bold'>${suggested_buy:.2f}</span>",
@@ -42,9 +52,8 @@ if ticker:
         hist["MA_1Y"] = hist["Close"].rolling(window=252).mean()
         hist["MA_2Y"] = hist["Close"].rolling(window=504).mean()
 
-        # --- 📊 Graph (below price info) ---
+        # --- 📊 Graph ---
         st.subheader("📊 5-Year Price Chart with Long-Term Moving Averages")
-
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(hist.index, hist["Close"], label="Close Price", color="black", linewidth=1)
         ax.plot(hist.index, hist["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
