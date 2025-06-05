@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # --- 페이지 설정 ---
-st.set_page_config(page_title="📈 주식 매매 예측 (Pandas)", layout="centered")
+st.set_page_config(page_title="📈 주식 매수/매도 예측 (Pandas)", layout="centered")
 st.title("📈 주식 매수/매도 예측 (ZigZag + Pandas 기술 지표)")
 
 # --- 티커 입력 ---
@@ -15,7 +15,7 @@ ticker = st.text_input("티커를 입력하세요 (예: AAPL, 005930.KS)", value
 def load_price_history(ticker):
     return yf.Ticker(ticker).history(period="5y")
 
-# --- 기술 지표 계산 함수들 ---
+# --- 기술 지표 함수 ---
 def compute_rsi(series, period=14):
     delta = series.diff()
     gain = delta.clip(lower=0)
@@ -36,8 +36,8 @@ def compute_macd(series, fast=12, slow=26, signal=9):
 def compute_bollinger_bands(series, window=20):
     sma = series.rolling(window).mean()
     std = series.rolling(window).std()
-    upper = sma + (2 * std)
-    lower = sma - (2 * std)
+    upper = sma + 2 * std
+    lower = sma - 2 * std
     return upper, sma, lower
 
 def zigzag_pandas(price_series, pct=5):
@@ -47,7 +47,6 @@ def zigzag_pandas(price_series, pct=5):
     zz = pd.Series(np.nan, index=price_series.index)
 
     for i in range(1, len(price_series)):
-        change = price_series[i] / peak - 1 if trend == 'down' else price_series[i] / valley - 1
         if trend is None:
             if price_series[i] > peak * (1 + pct/100):
                 trend = 'up'
@@ -75,12 +74,12 @@ def zigzag_pandas(price_series, pct=5):
                 zz.iloc[i] = peak
     return zz
 
-# --- 메인 로직 ---
+# --- 메인 ---
 if ticker:
     try:
         hist = load_price_history(ticker)
 
-        # 종가 기준 설정 (Adj Close가 없으면 Close 사용)
+        # 'Adj Close' 유무 체크 후 'Close' 컬럼 설정
         if 'Adj Close' in hist.columns:
             hist['Close'] = hist['Adj Close']
         else:
@@ -92,19 +91,17 @@ if ticker:
         hist['UpperBand'], hist['MiddleBand'], hist['LowerBand'] = compute_bollinger_bands(hist['Close'])
         hist['ZigZag'] = zigzag_pandas(hist['Close'], pct=5)
 
-        # 매수/매도 신호 계산
-        buy_signals = []
-        sell_signals = []
+        # 매수/매도 신호 생성
+        buy_signals = [np.nan]  # 0번째 인덱스 대비
+        sell_signals = [np.nan]
 
         for i in range(1, len(hist)):
-            # 매수 조건
-            if (hist['ZigZag'].iloc[i] > hist['ZigZag'].iloc[i - 1] and
+            if (hist['ZigZag'].iloc[i] > hist['ZigZag'].iloc[i-1] and
                 hist['RSI'].iloc[i] < 30 and
                 hist['MACD'].iloc[i] > hist['MACD_signal'].iloc[i]):
                 buy_signals.append(hist['Close'].iloc[i])
                 sell_signals.append(np.nan)
-            # 매도 조건
-            elif (hist['ZigZag'].iloc[i] < hist['ZigZag'].iloc[i - 1] and
+            elif (hist['ZigZag'].iloc[i] < hist['ZigZag'].iloc[i-1] and
                   hist['RSI'].iloc[i] > 70 and
                   hist['MACD'].iloc[i] < hist['MACD_signal'].iloc[i]):
                 sell_signals.append(hist['Close'].iloc[i])
@@ -116,14 +113,14 @@ if ticker:
         hist['Buy_Signal'] = buy_signals
         hist['Sell_Signal'] = sell_signals
 
-        # --- 차트 표시 ---
+        # --- 차트 출력 ---
         st.subheader(f"{ticker.upper()} 주가 및 매매 시그널")
 
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.plot(hist.index, hist['Close'], label='종가', color='black')
-        ax.plot(hist.index, hist['UpperBand'], label='Bollinger 상단', linestyle='--', color='red')
-        ax.plot(hist.index, hist['MiddleBand'], label='Bollinger 중앙', linestyle='--', color='green')
-        ax.plot(hist.index, hist['LowerBand'], label='Bollinger 하단', linestyle='--', color='blue')
+        ax.plot(hist.index, hist['UpperBand'], label='볼린저 밴드 상단', linestyle='--', color='red')
+        ax.plot(hist.index, hist['MiddleBand'], label='볼린저 밴드 중앙', linestyle='--', color='green')
+        ax.plot(hist.index, hist['LowerBand'], label='볼린저 밴드 하단', linestyle='--', color='blue')
 
         ax.scatter(hist.index, hist['Buy_Signal'], label='매수 신호', marker='^', color='green', s=100)
         ax.scatter(hist.index, hist['Sell_Signal'], label='매도 신호', marker='v', color='red', s=100)
@@ -137,5 +134,6 @@ if ticker:
 
     except Exception as e:
         st.error(f"데이터 로딩 실패: {e}")
+
 
 
