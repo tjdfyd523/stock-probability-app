@@ -21,46 +21,63 @@ def find_buy_signals(df):
             buy_signals.append(df.index[i])
     return buy_signals
 
+def find_wave_buy_signals(df, tolerance=0.02):
+    """
+    상승 웨이브 고점 분석하여,
+    이전 상승 웨이브 고점 대비 새로운 고점이 생긴 후,
+    종가가 이전 고점 ±tolerance 범위 내로 다시 하락할 때 매수 시그널 발생
+    """
+    # 웨이브 고점 찾기: 종가가 전후로 하락하는 지점 (local maxima)
+    close = df["Close"]
+    wave_highs = []
+    for i in range(1, len(close)-1):
+        if close[i] > close[i-1] and close[i] > close[i+1]:
+            wave_highs.append((df.index[i], close[i]))
+
+    buy_signals = []
+    prev_high = None
+    for i in range(1, len(wave_highs)):
+        current_high_date, current_high_price = wave_highs[i]
+        prev_high_date, prev_high_price = wave_highs[i-1]
+
+        # 현재 고점이 이전 고점보다 높을 때만 체크
+        if current_high_price > prev_high_price:
+            # 이후 데이터 중 종가가 이전 고점 ±tolerance 범위로 떨어지는 시점 탐색
+            search_start = df.index.get_loc(current_high_date)
+            for j in range(search_start+1, len(df)):
+                price_j = df["Close"].iloc[j]
+                if abs(price_j - prev_high_price)/prev_high_price <= tolerance:
+                    buy_signals.append(df.index[j])
+                    break  # 한 번 신호 발생 후 다음 고점으로 넘어감
+    return buy_signals
+
 if ticker:
     try:
         hist = load_price_history(ticker)
         stock = yf.Ticker(ticker)
         current_price = stock.history(period="1d")["Close"].iloc[-1]
 
-        # 기간 선택 (1개월 ~ 5년, 1개월 단위)
         month_options = [1, 2, 3, 4, 5, 6, 9, 12, 24, 36, 48, 60]
-        month_label = [f"{m} Month{'s' if m>1 else ''}" if m<12 else f"{m//12} Year{'s' if m//12>1 else ''}" for m in month_options]
         selected_period_months = st.selectbox("Select period to analyze:", options=month_options, format_func=lambda x: f"{x} Month{'s' if x>1 else ''}")
 
-        # 월 -> 거래일 근사 변환 (21 거래일/월)
         period_days = selected_period_months * 21
         hist_period = hist.tail(period_days).copy()
 
-        # 이동평균 계산 (window 크기가 기간보다 크면 min_periods=1)
         hist_period["MA_6M"] = hist_period["Close"].rolling(window=126, min_periods=1).mean()
         hist_period["MA_1Y"] = hist_period["Close"].rolling(window=252, min_periods=1).mean()
         hist_period["MA_2Y"] = hist_period["Close"].rolling(window=504, min_periods=1).mean()
 
-        # 매수 신호 (6M MA가 1Y MA를 골든크로스하는 시점)
-        buy_signals = find_buy_signals(hist_period)
-        buy_prices = hist_period.loc[buy_signals]["Close"] if buy_signals else pd.Series(dtype=float)
+        buy_signals_ma = find_buy_signals(hist_period)
+        buy_signals_wave = find_wave_buy_signals(hist_period, tolerance=0.02)
 
-        # 매도 권장가: 최근 상승 파동 최고점의 90%
-        # 최고점은 기간 내 최고점
         recent_peak = hist_period["Close"].max()
         suggested_sell = recent_peak * 0.9
-
-        # 매수 권장가: 해당 기간 마지막 6M MA 값 (또는 직전 매수 포인트 평균)
-        # 여기선 마지막 6M MA 사용
         suggested_buy = hist_period["MA_6M"].iloc[-1]
 
-        # 현재 가격 표시
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
-
         st.markdown(f"📌 Suggested Buy Price: <span style='color:red; font-weight:bold'>${suggested_buy:.2f}</span>", unsafe_allow_html=True)
         st.markdown(f"📌 Suggested Sell Price: <span style='color:blue; font-weight:bold'>${suggested_sell:.2f}</span>", unsafe_allow_html=True)
 
-        # 그래프 그리기
         st.subheader(f"📊 Price Chart & Moving Averages - Last {selected_period_months} Month{'s' if selected_period_months > 1 else ''}")
 
         fig, ax = plt.subplots(figsize=(10,5))
@@ -72,9 +89,13 @@ if ticker:
         ax.axhline(suggested_buy, color="red", linestyle=":", label=f"Suggested Buy (${suggested_buy:.2f})")
         ax.axhline(suggested_sell, color="blue", linestyle=":", label=f"Suggested Sell (${suggested_sell:.2f})")
 
-        # 매수 신호 포인트 (Close price 기준)
-        if len(buy_signals) > 0:
-            ax.scatter(buy_signals, hist_period.loc[buy_signals]["Close"], color="red", label="Buy Signal", marker="^", s=100)
+        # MA 골든크로스 매수 시그널
+        if buy_signals_ma:
+            ax.scatter(buy_signals_ma, hist_period.loc[buy_signals_ma]["Close"], color="red", label="MA Cross Buy Signal", marker="^", s=100)
+
+        # Wave 기반 매수 시그널
+        if buy_signals_wave:
+            ax.scatter(buy_signals_wave, hist_period.loc[buy_signals_wave]["Close"], color="magenta", label="Wave-based Buy Signal", marker="*", s=120)
 
         ax.set_title(f"{ticker.upper()} Price & Moving Averages")
         ax.set_xlabel("Date")
@@ -120,4 +141,5 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
 
