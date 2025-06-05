@@ -22,13 +22,42 @@ def find_ma_buy_signals(df):
             buy_signals.append(df.index[i])
     return buy_signals
 
-def find_rice_bowl_zone(df, window=30):
-    recent = df.tail(window)
-    bowl_low = recent["Close"].min()
-    bowl_high = recent["Close"].max()
-    bowl_start = recent.index[0]
-    bowl_end = recent.index[-1]
-    return bowl_start, bowl_end, bowl_low, bowl_high
+# 밥그릇 구간과 시그널을 슬라이딩 윈도우로 찾기
+def find_rice_bowl_signals(df, window=30, step=5):
+    bowl_rects = []
+    buy_signals = []
+    sell_signals = []
+
+    for start_idx in range(0, len(df) - window + 1, step):
+        window_df = df.iloc[start_idx:start_idx + window]
+        start_date = window_df.index[0]
+        end_date = window_df.index[-1]
+        low = window_df["Close"].min()
+        high = window_df["Close"].max()
+
+        bowl_rects.append((start_date, end_date, low, high))
+
+        # buy signal: 이전일 종가가 bowl low 밑, 당일 종가가 bowl low 이상일 때
+        for i in range(1, len(window_df)):
+            prev_close = window_df["Close"].iloc[i-1]
+            curr_close = window_df["Close"].iloc[i]
+            curr_date = window_df.index[i]
+            if prev_close < low and curr_close >= low:
+                buy_signals.append(curr_date)
+
+        # sell signal: 이전일 종가가 bowl high 이하, 당일 종가가 bowl high 초과일 때
+        for i in range(1, len(window_df)):
+            prev_close = window_df["Close"].iloc[i-1]
+            curr_close = window_df["Close"].iloc[i]
+            curr_date = window_df.index[i]
+            if prev_close <= high and curr_close > high:
+                sell_signals.append(curr_date)
+
+    # 중복 제거
+    buy_signals = list(pd.Series(buy_signals).drop_duplicates())
+    sell_signals = list(pd.Series(sell_signals).drop_duplicates())
+
+    return bowl_rects, buy_signals, sell_signals
 
 if ticker:
     try:
@@ -58,51 +87,34 @@ if ticker:
         ax.plot(hist_period.index, hist_period["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
         ax.plot(hist_period.index, hist_period["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
 
-        # Find rice bowl zone
-        bowl_start, bowl_end, bowl_low, bowl_high = find_rice_bowl_zone(hist_period, window=30)
+        # 밥그릇 구간, 매수/매도 시그널 찾기
+        bowl_rects, bowl_buy_signals, bowl_sell_signals = find_rice_bowl_signals(hist_period, window=30, step=5)
 
-        # Convert dates to matplotlib float format for rectangle width
-        bowl_start_num = date2num(bowl_start)
-        bowl_end_num = date2num(bowl_end)
-        width = bowl_end_num - bowl_start_num
+        # 밥그릇 구간 그리기
+        for (start_date, end_date, low, high) in bowl_rects:
+            start_num = date2num(start_date)
+            end_num = date2num(end_date)
+            width = end_num - start_num
+            rect = patches.Rectangle(
+                (start_num, low),
+                width,
+                high - low,
+                linewidth=1,
+                edgecolor='purple',
+                facecolor='purple',
+                alpha=0.07
+            )
+            ax.add_patch(rect)
 
-        # Draw rectangle for rice bowl zone
-        rect = patches.Rectangle(
-            (bowl_start_num, bowl_low),
-            width,
-            bowl_high - bowl_low,
-            linewidth=1,
-            edgecolor='purple',
-            facecolor='purple',
-            alpha=0.1,
-            label='Rice Bowl Zone'
-        )
-        ax.add_patch(rect)
+        # 밥그릇 매수 신호 표시
+        if bowl_buy_signals:
+            ax.scatter(bowl_buy_signals, hist_period.loc[bowl_buy_signals]["Close"], color="green", marker="^", s=120, label="Rice Bowl Buy Signal")
 
-        # Detect buy signals near bowl bottom: price crossing above bowl_low
-        df_bowl = hist_period.loc[bowl_start:bowl_end]
-        buy_points = []
-        for i in range(1, len(df_bowl)):
-            prev_close = df_bowl["Close"].iloc[i-1]
-            curr_close = df_bowl["Close"].iloc[i]
-            if prev_close < bowl_low and curr_close >= bowl_low:
-                buy_points.append(df_bowl.index[i])
+        # 밥그릇 매도 신호 표시
+        if bowl_sell_signals:
+            ax.scatter(bowl_sell_signals, hist_period.loc[bowl_sell_signals]["Close"], color="red", marker="v", s=120, label="Rice Bowl Sell Signal")
 
-        # Detect sell signals: price crossing above bowl_high
-        sell_points = []
-        for i in range(1, len(df_bowl)):
-            prev_close = df_bowl["Close"].iloc[i-1]
-            curr_close = df_bowl["Close"].iloc[i]
-            if prev_close <= bowl_high and curr_close > bowl_high:
-                sell_points.append(df_bowl.index[i])
-
-        # Plot buy/sell signals
-        if buy_points:
-            ax.scatter(buy_points, hist_period.loc[buy_points]["Close"], color="green", marker="^", s=120, label="Rice Bowl Buy Signal")
-        if sell_points:
-            ax.scatter(sell_points, hist_period.loc[sell_points]["Close"], color="red", marker="v", s=120, label="Rice Bowl Sell Signal")
-
-        # Plot MA cross buy signals
+        # MA 교차 매수 시그널 표시
         if ma_buy_signals:
             ax.scatter(ma_buy_signals, hist_period.loc[ma_buy_signals]["Close"], color="orange", marker="^", s=100, label="MA Cross Buy Signal")
 
