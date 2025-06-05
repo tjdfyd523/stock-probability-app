@@ -3,6 +3,7 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.stats import norm
 
 st.set_page_config(page_title="📈 Stock Up/Down Forecast", layout="centered")
 st.title("📈 Stock Up/Down Probability with Real-Time Price")
@@ -22,38 +23,32 @@ def calculate_up_down_probability(df, window=20):
     down_probs = 1 - up_probs
     return up_probs, down_probs
 
-def find_confident_signals(df, up_probs, down_probs, threshold=0.75):
-    buy_signals = []
-    sell_signals = []
-
-    # Filter only signals within the last 2 years
-    cutoff_date = df.index[-1] - pd.DateOffset(years=2)
-
-    for i in range(len(df)):
-        if df.index[i] < cutoff_date:
-            continue
-
-        price = df["Close"].iloc[i]
-
-        # Sell signal condition (75% probability of down movement)
-        recent_20_low = df["Close"].iloc[max(0,i-20):i+1].min()
-        if down_probs.iloc[i] is not np.nan and down_probs.iloc[i] >= threshold and price <= recent_20_low * 0.93:
-            sell_signals.append((df.index[i], price))
-
-        # Buy signal condition (75% probability of up movement)
-        recent_10_high = df["Close"].iloc[max(0,i-10):i+1].max()
-        ma_5 = df["Close"].rolling(window=5).mean().iloc[i]
-        if up_probs.iloc[i] is not np.nan and up_probs.iloc[i] >= threshold and price >= recent_10_high * 1.10:
-            buy_signals.append((df.index[i], price))
-
-    return buy_signals, sell_signals
-
 def calculate_predicted_price(current_price, avg_daily_return, days):
     """
     Predict future price based on average daily return
     """
     predicted_price = current_price * ((1 + avg_daily_return) ** days)
     return predicted_price
+
+def calculate_price_probability(predicted_price, current_price, returns, days):
+    """
+    Calculate probability that the stock will reach the predicted price
+    based on historical daily returns and their distribution.
+    """
+    # Calculate the daily returns' mean and std deviation
+    daily_mean = returns.mean()
+    daily_std = returns.std()
+
+    # Calculate the expected future price based on the historical data
+    future_return = (predicted_price / current_price) - 1
+
+    # Calculate z-score (how many std deviations away from the mean)
+    z_score = (future_return - daily_mean) / (daily_std * np.sqrt(days))
+
+    # Calculate the cumulative probability of the predicted price being reached
+    probability = norm.cdf(z_score)
+
+    return probability
 
 if ticker:
     try:
@@ -76,9 +71,6 @@ if ticker:
         # Calculate up and down probabilities (20-day window)
         up_probs, down_probs = calculate_up_down_probability(hist_period, window=20)
 
-        # Find buy and sell signals based on 75% confidence
-        buy_signals, sell_signals = find_confident_signals(hist_period, up_probs, down_probs, threshold=0.75)
-
         st.subheader(f"💰 Current Price: ${current_price:.2f}")
 
         st.subheader(f"📊 Price Chart & Moving Averages - Last {selected_period_months} Month{'s' if selected_period_months > 1 else ''}")
@@ -88,20 +80,6 @@ if ticker:
         ax.plot(hist_period.index, hist_period["MA_6M"], label="6-Month MA", linestyle='--', color="orange")
         ax.plot(hist_period.index, hist_period["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
         ax.plot(hist_period.index, hist_period["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
-
-        # Display buy signals (now sell signals in original code)
-        if sell_signals:
-            sell_dates, sell_prices = zip(*sell_signals)
-            ax.scatter(sell_dates, sell_prices, color="blue", label="Sell Signal", marker="v", s=100)
-            for d, p in sell_signals:
-                ax.text(d, p * 1.01, f"${p:.2f}", color="blue", fontsize=9, fontweight="bold", ha='center')
-
-        # Display sell signals (now buy signals in original code)
-        if buy_signals:
-            buy_dates, buy_prices = zip(*buy_signals)
-            ax.scatter(buy_dates, buy_prices, color="red", label="Buy Signal", marker="^", s=100)
-            for d, p in buy_signals:
-                ax.text(d, p * 0.99, f"${p:.2f}", color="red", fontsize=9, fontweight="bold", ha='center')
 
         ax.set_title(f"{ticker.upper()} Price & Moving Averages")
         ax.set_xlabel("Date")
@@ -122,12 +100,14 @@ if ticker:
             "1 Year": 252,
         }
 
-        # Predicted price display with probability
+        # Calculate predicted prices and probabilities for each period
         for label, days in periods_prob.items():
             predicted_price = calculate_predicted_price(current_price, avg_daily_return, days)
-            up_prob = up_probs.iloc[-1] if up_probs.iloc[-1] is not np.nan else 0
+            probability = calculate_price_probability(predicted_price, current_price, daily_returns, days)
+
+            # Display predicted price and the probability of reaching it
             st.markdown(f"💡 **{label} Later:** `${predicted_price:.2f}`")
-            st.markdown(f"📊 **Probability of Price Being Higher**: <span style='color:red'>{up_prob * 100:.2f}%</span>", unsafe_allow_html=True)
+            st.markdown(f"📊 **Probability of Reaching This Price:** <span style='color:red'>{probability * 100:.2f}%</span>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
