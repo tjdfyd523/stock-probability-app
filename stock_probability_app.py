@@ -15,6 +15,20 @@ ticker = st.text_input("Enter ticker (e.g., AAPL, 005930.KS)", value="SOXL")
 def load_price_history(ticker):
     return yf.Ticker(ticker).history(period="5y")
 
+def find_cross_price(series1, series2):
+    """Return the last crossing price where series1 crosses above series2."""
+    cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
+    if cross.any():
+        return hist.loc[cross, "Close"].iloc[-1]
+    return None
+
+def find_cross_price_down(series1, series2):
+    """Return the last crossing price where series1 crosses below series2."""
+    cross = (series1 < series2) & (series1.shift(1) >= series2.shift(1))
+    if cross.any():
+        return hist.loc[cross, "Close"].iloc[-1]
+    return None
+
 if ticker:
     try:
         # Load historical data
@@ -22,35 +36,29 @@ if ticker:
         stock = yf.Ticker(ticker)
         current_price = stock.history(period="1d")["Close"].iloc[-1]
 
-        # --- 현실적인 매수/매도 권장가 계산 ---
-        # 매수 권장가: 현재가에서 15% 하락 기준
-        suggested_buy = current_price * 0.85
-
-        # 매도 권장가: 성장률 + 변동성 반영 + 과거 고점 상한
-        five_year_high = hist["Close"].max()
-        avg_5yr_return = hist["Close"].pct_change().mean() * len(hist)
-        reasonable_growth_target = current_price * (1 + avg_5yr_return)
-
-        volatility_factor = hist["Close"].pct_change().std() * 100
-        volatility_adjustment = 1 + min(volatility_factor / 10, 1.0)  # up to 2x
-
-        suggested_sell = min(reasonable_growth_target * volatility_adjustment, five_year_high)
-
-        # --- 현재가 및 매수/매도 정보 표시 ---
-        st.subheader(f"💰 Current Price: ${current_price:.2f}")
-        st.markdown(
-            f"📌 Suggested Buy Price: <span style='color:red; font-weight:bold'>${suggested_buy:.2f}</span>",
-            unsafe_allow_html=True
-        )
-        st.markdown(
-            f"📌 Suggested Sell Price: <span style='color:blue; font-weight:bold'>${suggested_sell:.2f}</span>",
-            unsafe_allow_html=True
-        )
-
-        # --- Long-Term Moving Averages ---
+        # --- Moving Averages ---
         hist["MA_6M"] = hist["Close"].rolling(window=126).mean()
         hist["MA_1Y"] = hist["Close"].rolling(window=252).mean()
         hist["MA_2Y"] = hist["Close"].rolling(window=504).mean()
+
+        # --- 매수 권장가: 골든크로스 기반 ---
+        buy_price_1 = find_cross_price(hist["MA_6M"], hist["MA_1Y"])
+        buy_price_2 = find_cross_price(hist["MA_1Y"], hist["MA_2Y"])
+
+        # --- 매도 권장가: 데드크로스 기반 ---
+        sell_price_1 = find_cross_price_down(hist["MA_6M"], hist["MA_1Y"])
+        sell_price_2 = find_cross_price_down(hist["MA_1Y"], hist["MA_2Y"])
+
+        # --- Price Display ---
+        st.subheader(f"💰 Current Price: ${current_price:.2f}")
+        if buy_price_1:
+            st.markdown(f"📌 **1차 매수 권장가 (6M > 1Y 골든크로스):** <span style='color:green; font-weight:bold'>${buy_price_1:.2f}</span>", unsafe_allow_html=True)
+        if buy_price_2:
+            st.markdown(f"📌 **2차 매수 권장가 (1Y > 2Y 골든크로스):** <span style='color:darkgreen; font-weight:bold'>${buy_price_2:.2f}</span>", unsafe_allow_html=True)
+        if sell_price_1:
+            st.markdown(f"📌 **1차 매도 권장가 (6M < 1Y 데드크로스):** <span style='color:red; font-weight:bold'>${sell_price_1:.2f}</span>", unsafe_allow_html=True)
+        if sell_price_2:
+            st.markdown(f"📌 **2차 매도 권장가 (1Y < 2Y 데드크로스):** <span style='color:darkred; font-weight:bold'>${sell_price_2:.2f}</span>", unsafe_allow_html=True)
 
         # --- 📊 Graph ---
         st.subheader("📊 5-Year Price Chart with Long-Term Moving Averages")
@@ -60,11 +68,16 @@ if ticker:
         ax.plot(hist.index, hist["MA_1Y"], label="1-Year MA", linestyle='--', color="green")
         ax.plot(hist.index, hist["MA_2Y"], label="2-Year MA", linestyle='--', color="red")
 
-        # Buy/Sell guide lines
-        ax.axhline(suggested_buy, color="red", linestyle=":", label=f"Buy @ ${suggested_buy:.2f}")
-        ax.axhline(suggested_sell, color="blue", linestyle=":", label=f"Sell @ ${suggested_sell:.2f}")
+        if buy_price_1:
+            ax.axhline(buy_price_1, color="green", linestyle=":", label=f"1차 매수 @ ${buy_price_1:.2f}")
+        if buy_price_2:
+            ax.axhline(buy_price_2, color="darkgreen", linestyle=":", label=f"2차 매수 @ ${buy_price_2:.2f}")
+        if sell_price_1:
+            ax.axhline(sell_price_1, color="red", linestyle=":", label=f"1차 매도 @ ${sell_price_1:.2f}")
+        if sell_price_2:
+            ax.axhline(sell_price_2, color="darkred", linestyle=":", label=f"2차 매도 @ ${sell_price_2:.2f}")
 
-        ax.set_title(f"{ticker.upper()} - Historical Price & Long-Term Moving Averages")
+        ax.set_title(f"{ticker.upper()} - Historical Price & Moving Average Crossovers")
         ax.set_ylabel("Price")
         ax.set_xlabel("Date")
         ax.legend(loc='upper left')
@@ -108,3 +121,4 @@ if ticker:
 
     except Exception as e:
         st.error(f"⚠️ Failed to fetch data for ticker `{ticker}`.\n\nDetails: {e}")
+
